@@ -1,8 +1,8 @@
 package com.database.migration.movies;
 
-import com.fasterxml.jackson.databind.util.JSONPObject;
-import org.apache.tomcat.util.http.fileupload.impl.SizeException;
-import org.apache.tomcat.util.http.fileupload.impl.SizeLimitExceededException;
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -10,27 +10,34 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
-import java.sql.Array;
-import java.util.ArrayList;
-import java.util.Base64;
-import java.util.List;
-
-import org.json.JSONArray;
-import org.json.JSONException;
-import org.json.JSONObject;
+import java.util.*;
 
 
 @Service
 public class MoviesService implements IMoviesService {
     IMoviesRepository iMoviesRepository;
 
-    private int totalNumber;
-    private int failNumber;
+    public int totalNumber;
+    public int migratedNumber;
+    public int failNumber;
+    public int lastIndex;
+
+    public Hashtable<String, MIGRATION_STATUS> statusDict;
+
+    public enum MIGRATION_STATUS {
+        STARTED,
+        RESUMED,
+        PROGRESS,
+        ENDED
+    }
 
     public MoviesService(IMoviesRepository iMoviesRepository) {
         this.iMoviesRepository = iMoviesRepository;
         this.totalNumber = 0;
         this.failNumber = 0;
+        this.lastIndex = 0;
+        this.migratedNumber = 0;
+        this.statusDict = new Hashtable<String, MIGRATION_STATUS>();
     }
 
 
@@ -38,6 +45,7 @@ public class MoviesService implements IMoviesService {
         String url = "https://api.themoviedb.org/3/find/" + id  + "?api_key=a7f7650bc6053c146e113d011a993b07&language=en-US&external_source=imdb_id";
         HttpHeaders headers = new HttpHeaders();
         HttpEntity request = new HttpEntity(headers);
+
 
         ResponseEntity<String> response = new RestTemplate().exchange(url, HttpMethod.GET, request, String.class);
 
@@ -60,19 +68,24 @@ public class MoviesService implements IMoviesService {
 
         Movies movie_data;
         try{
+            statusDict.put(url, MIGRATION_STATUS.PROGRESS);
+
             movie_data = new Movies(id, m.getString("title"), m.getString("overview"), m.getString("poster_path"), m.getString("media_type"), m.getString("popularity"), m.getString("release_date"), m.getBoolean("video"), m.getLong("vote_average"), m.getLong("vote_count"));
             iMoviesRepository.saveAndFlush(movie_data);
+            this.migratedNumber++;
+
+            statusDict.put(url, MIGRATION_STATUS.ENDED);
+
         }catch(Exception e)
         {
             this.failNumber++;
         }
 
-
     }
-
 
     @Override
     public void start(String url) {
+
         try {
             // create auth credentials
             String authStr = "list_provider_service:is_password_a_password?";
@@ -94,29 +107,16 @@ public class MoviesService implements IMoviesService {
 
             this.totalNumber = json.length();
 
-            for(int i=0;i<this.totalNumber;i++)
+            for(int i=this.lastIndex;i<3;i++)
             {
-
                 getMovieData(json.getString(i));
-
+                this.lastIndex = i;
             }
-           // getMovieData("tt4458206");
 
         } catch (Exception ex) {
             ex.printStackTrace();
         }
-    }
-
-    public List<String> response(String url)
-    {
-        List<String> strings = new ArrayList();
-
-        strings.add("url:" + url);
-        strings.add("totalItemsNumber" + this.totalNumber);
-        strings.add("state: Started");
 
 
-
-        return strings;
     }
 }
